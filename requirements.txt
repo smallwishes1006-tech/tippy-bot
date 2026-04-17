@@ -1,0 +1,36 @@
+# Tippy Bot - Litecoin Custodial Tipping Bot
+# Python 3.8+
+
+# Core Discord Integration
+discord.py==2.3.2
+
+# Database
+pymongo==4.5.0
+
+# API & HTTP
+requests==2.31.0
+
+# Environment Variables
+python-dotenv==1.0.0
+
+# Async Support
+aiohttp==3.9.0
+
+# Security & 2FA
+pyotp==2.9.0
+
+# Logging & Monitoring (optional)
+python-json-logger==2.0.7
+
+# Data Validation (optional)
+pydantic==2.5.0
+
+# Rate Limiting (optional)
+ratelimit==2.2.1
+
+# Cryptography for 2FA
+pyotp==2.9.0
+
+# BSON for MongoDB ObjectId
+pymongo[bson]==4.5.0
+

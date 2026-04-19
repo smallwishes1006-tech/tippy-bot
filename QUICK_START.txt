@@ -1,0 +1,78 @@
+# ? QUICK START - Deploy Tippy Bot (5 Minutes)
+
+## Your GitHub Code
+? Ready at: https://github.com/smallwishes1006-tech/tippy-bot
+
+## Step 1: Create Render Account (2 min)
+\\\
+1. Go to https://render.com
+2. Click "Sign up" ? "Sign up with GitHub"
+3. Authorize & complete profile
+\\\
+
+## Step 2: Deploy Bot (1 min)
+\\\
+1. Render Dashboard ? "New +" ? "Worker"
+2. Select: smallwishes1006-tech/tippy-bot
+3. Name: tippy-bot
+4. Runtime: Docker
+5. Plan: Free
+6. Click "Create Web Service"
+   (auto-builds and deploys)
+\\\
+
+## Step 3: Add Secrets (1 min)
+Go to service "Environment" tab, add these 5:
+
+\\\
+DISCORD_TOKEN
+[paste: YOUR_DISCORD_BOT_TOKEN_HERE]
+
+MASTER_WALLET_ADDRESS
+[paste: YOUR_WALLET_ADDRESS_HERE]
+
+MASTER_WALLET_PRIVATE_KEY
+[paste: YOUR_WALLET_PRIVATE_KEY_HERE]
+
+BLOCKCYPHER_API_KEY
+[paste: YOUR_BLOCKCYPHER_API_KEY_HERE]
+
+BOT_OWNER_ID
+[paste: YOUR_DISCORD_USER_ID_HERE]
+\\\
+
+Hit Save after each one.
+
+## Step 4: Verify Online (1 min)
+\\\
+Click "Logs" tab
+Wait for: [OK] Bot ready as TippyBot
+\\\
+
+## Step 5: Test (30 sec)
+\\\
+Discord: \
+Bot responds = SUCCESS ?
+\\\
+
+## Step 6: Clean Up (30 sec)
+\\\
+Stop Replit bot:
+https://replit.com/@smallwishes1006/tippy-bot
+Click "Stop"
+\\\
+
+---
+
+## ? Done!
+Your bot now runs 24/7 completely FREE on Render.com!
+
+**No more:**
+- Replit charges
+- Trial expiration
+- Downtime
+
+**Always:**
+- Online 24/7
+- Auto-deploys from GitHub
+- FREE forever

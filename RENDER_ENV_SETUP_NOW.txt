@@ -1,0 +1,39 @@
+RENDER.COM ENVIRONMENT VARIABLE SETUP
+=====================================
+
+Your service "tippy-bot" has been created but needs 5 environment variables to start.
+
+LOCATION: Click "Environment" in the left sidebar of your Render dashboard
+
+ADD THESE 5 VARIABLES (copy-paste exactly):
+
+1. DISCORD_TOKEN
+   Value: [USE YOUR OWN DISCORD TOKEN FROM DEVELOPER PORTAL]
+   [Click "Add" after entering]
+
+2. MASTER_WALLET_ADDRESS
+   Value: [USE YOUR OWN WALLET ADDRESS]
+   [Click "Add" after entering]
+
+3. MASTER_WALLET_PRIVATE_KEY
+   Value: [USE YOUR OWN PRIVATE KEY]
+   [Click "Add" after entering]
+
+4. BLOCKCYPHER_API_KEY
+   Value: [USE YOUR OWN API KEY]
+   [Click "Add" after entering]
+
+5. BOT_OWNER_ID
+   Value: 772300666458603520
+   [Click "Add" after entering]
+
+AFTER ADDING ALL 5:
+1. Scroll up to the top of the service page
+2. Click "Manual Deploy" button
+3. Click "Deploy" button that appears
+4. Watch the logs - wait for: [OK] Bot ready as TippyBot
+5. When you see that message, your bot is online! ?
+
+The service URL is: https://tippy-bot-wtvy.onrender.com
+
+Questions? Check the "Logs" tab if deployment fails again.

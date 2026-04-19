@@ -1,0 +1,29 @@
+services:
+  - type: worker
+    name: tippy-bot
+    runtime: docker
+    plan: free
+    region: oregon
+    
+    # Auto-deploy on GitHub push
+    autoDeploy: true
+    
+    # Health check (optional - for uptime monitoring)
+    healthCheck:
+      path: /health
+      interval: 30
+      timeout: 10
+    
+    # Environment variables (add these in Render dashboard)
+    envVars:
+      - key: DISCORD_TOKEN
+        scope: run
+      - key: MASTER_WALLET_ADDRESS
+        scope: run
+      - key: MASTER_WALLET_PRIVATE_KEY
+        scope: run
+      - key: BLOCKCYPHER_API_KEY
+        scope: run
+      - key: BOT_OWNER_ID
+        scope: run
+        value: "772300666458603520"

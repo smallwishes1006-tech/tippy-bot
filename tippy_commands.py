@@ -762,5 +762,83 @@ async def setup(bot):
         """Alias for commands"""
         await show_commands(ctx)
     
-    logger.info("[OK] Tippy commands loaded with 11 commands + 9 aliases")
+    
+    @bot.command(name='leaderboard', help='Show top tippers in this server')
+    async def leaderboard(ctx):
+        """Show leaderboard of top tippers by total LTC sent"""
+        try:
+            from tippy_system import load_all_users
+            
+            rate = get_ltc_usd_rate()
+            all_users = load_all_users()
+            
+            if not all_users:
+                embed = discord.Embed(
+                    title="📊 Leaderboard",
+                    description="No users yet",
+                    color=discord.Color.gold()
+                )
+                await ctx.send(embed=embed)
+                return
+            
+            # Sort by total_sent descending
+            sorted_users = sorted(
+                all_users.items(),
+                key=lambda x: x[1].get('total_sent', 0),
+                reverse=True
+            )
+            
+            # Get top 10
+            top_10 = sorted_users[:10]
+            
+            embed = discord.Embed(
+                title="🏆 Tippy Leaderboard",
+                description="Top tippers by total LTC sent",
+                color=discord.Color.gold()
+            )
+            
+            if len(top_10) == 0:
+                embed.description = "No tippers yet"
+                await ctx.send(embed=embed)
+                return
+            
+            for rank, (user_id, user_data) in enumerate(top_10, 1):
+                total_sent = user_data.get('total_sent', 0)
+                total_sent_usd = total_sent * rate
+                
+                # Try to get user display name
+                try:
+                    user_obj = await bot.fetch_user(int(user_id))
+                    username = user_obj.name
+                except:
+                    username = f"User {user_id}"
+                
+                medal = "🥇" if rank == 1 else "🥈" if rank == 2 else "🥉" if rank == 3 else f"{rank}."
+                
+                embed.add_field(
+                    name=f"{medal} {username}",
+                    value=f"{format_amount(total_sent, total_sent_usd)}",
+                    inline=False
+                )
+            
+            embed.set_footer(text=f"💱 Rate: 1 LTC = ${rate:.2f}")
+            await ctx.send(embed=embed)
+            logger.info(f"Leaderboard shown with {len(top_10)} users")
+            
+        except Exception as e:
+            logger.error(f"Leaderboard error: {e}")
+            error_embed = discord.Embed(
+                title="[FAIL] Error",
+                description=str(e)[:100],
+                color=discord.Color.red()
+            )
+            await ctx.send(embed=error_embed)
+    
+    
+    @bot.command(name='lb', help='Leaderboard (short)')
+    async def lb_short(ctx):
+        """Alias for leaderboard"""
+        await leaderboard(ctx)
+    
+    logger.info("[OK] Tippy commands loaded with 12 commands + 11 aliases")
 

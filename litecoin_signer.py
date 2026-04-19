@@ -10,6 +10,7 @@ from bitcoinlib.wallets import wallet_create_or_open, wallet_delete_if_exists
 from bitcoinlib.mnemonic import Mnemonic
 import config
 from address_validator import LitecoinValidator
+from multi_broadcaster import broadcast_with_retry, check_broadcast_status
 
 logger = logging.getLogger('litecoin_signer')
 

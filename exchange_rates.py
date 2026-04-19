@@ -60,7 +60,8 @@ def _try_coingecko() -> float:
         response = requests.get(
             'https://api.coingecko.com/api/v3/simple/price',
             params={'ids': 'litecoin', 'vs_currencies': 'usd'},
-            timeout=3
+            headers={'User-Agent': 'TippyBot/1.0'},
+            timeout=5
         )
         
         if response.status_code == 200:
@@ -81,20 +82,23 @@ def _try_coingecko() -> float:
 
 
 def _try_coinmarketcap() -> float:
-    """Try CoinMarketCap API (free tier)"""
+    """Try CoinMarketCap API (free alternative via public source)"""
     try:
+        # Using coinmarketcap.com public data without API key
         response = requests.get(
-            'https://api.coinmarketcap.com/data/v3.1/cryptocurrency/quotes/latest',
+            'https://web-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest',
             params={'symbol': 'LTC', 'convert': 'USD'},
-            timeout=3
+            headers={'User-Agent': 'TippyBot/1.0'},
+            timeout=5
         )
         
         if response.status_code == 200:
             data = response.json()
-            rate = data.get('data', {}).get('LTC', [{}])[0].get('quote', {}).get('USD', {}).get('price', 0)
-            if rate > 0:
-                logger.info(f"✅ CoinMarketCap: ${rate:.2f}")
-                return rate
+            ltc_data = data.get('data', {}).get('LTC', {})
+            price = ltc_data.get('quote', {}).get('USD', {}).get('price', 0)
+            if price > 0:
+                logger.info(f"✅ CoinMarketCap: ${price:.2f}")
+                return price
         else:
             logger.debug(f"CoinMarketCap error: {response.status_code}")
             return None
@@ -108,8 +112,9 @@ def _try_binance() -> float:
     try:
         response = requests.get(
             'https://api.binance.com/api/v3/ticker/price',
-            params={'symbol': 'LTCUSD'},
-            timeout=3
+            params={'symbol': 'LTCUSDT'},
+            headers={'User-Agent': 'TippyBot/1.0'},
+            timeout=5
         )
         
         if response.status_code == 200:
@@ -131,18 +136,25 @@ def _try_kraken() -> float:
     try:
         response = requests.get(
             'https://api.kraken.com/0/public/Ticker',
-            params={'pair': 'LTCUSD'},
-            timeout=3
+            params={'pair': 'XLTCZUSD'},
+            headers={'User-Agent': 'TippyBot/1.0'},
+            timeout=5
         )
         
         if response.status_code == 200:
             data = response.json()
-            if 'result' in data and 'LTCUSD' in data['result']:
-                # Kraken returns [ask, bid, etc] arrays
-                price = float(data['result']['LTCUSD']['c'][0])  # c = last trade
-                if price > 0:
-                    logger.info(f"✅ Kraken: ${price:.2f}")
-                    return price
+            if 'result' in data and data['result']:
+                # Get first key in result (pair name)
+                pair_key = list(data['result'].keys())[0]
+                price_data = data['result'][pair_key]
+                # c = last trade price [price, lot volume]
+                if 'c' in price_data:
+                    price = float(price_data['c'][0])
+                    if price > 0:
+                        logger.info(f"✅ Kraken: ${price:.2f}")
+                        return price
+            logger.debug(f"Kraken: No valid data in response")
+            return None
         else:
             logger.debug(f"Kraken error: {response.status_code}")
             return None

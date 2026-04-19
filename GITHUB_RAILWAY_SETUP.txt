@@ -1,0 +1,74 @@
+# GITHUB & RAILWAY SETUP - EXECUTE THESE STEPS
+
+## STEP 1: Create GitHub Repository (One-Time)
+
+1. Go to https://github.com/new
+2. Repository name: `tippy-bot`
+3. Description: `Litecoin Discord Tipping Bot`
+4. Select **PUBLIC**
+5. Click **Create repository**
+6. Copy the HTTPS URL (should be `https://github.com/YOUR_USERNAME/tippy-bot.git`)
+
+## STEP 2: Push Code to GitHub
+
+Replace `YOUR_USERNAME` with your actual GitHub username, then run:
+
+```powershell
+cd C:\Users\small\tippy-bot-clean
+
+git remote add origin https://github.com/YOUR_USERNAME/tippy-bot.git
+git branch -M main
+git push -u origin main
+```
+
+After this, your code will be on GitHub and visible at: `https://github.com/YOUR_USERNAME/tippy-bot`
+
+## STEP 3: Deploy to Railway.app
+
+1. Go to https://railway.app
+2. Click **Start Project**
+3. Sign up with GitHub (authorize Railway)
+4. Click **New Project**
+5. Select **GitHub Repo**
+6. Search for and select `tippy-bot`
+7. Click **Deploy**
+
+Railway will auto-detect Python and install dependencies from `requirements.txt`
+
+## STEP 4: Set Environment Variables
+
+In Railway dashboard (after deploy starts):
+
+1. Click your project
+2. Click **Variables**
+3. Add these from your `.env` file:
+
+```
+DISCORD_TOKEN=MTQ4NTY1ODc0OTc3NDQ2MzExNw.GN4xwS.orINQv62oPTNBhMIC0-Itv5Xba-sG8ZvuZLA4Y
+BOT_OWNER_ID=772300666458603520
+MASTER_WALLET_ADDRESS=LgtpifMGDFirYSp39esx3zb4v47KgqubBk
+MASTER_WALLET_PRIVATE_KEY=T4TV9opCaTfGhzNuYVNMCcziJAUA3un5pSSQ5UumcLtsAPUeHePo
+BLOCKCYPHER_API_KEY=ca16eb5f711d4cc3baca146bb2166d02
+```
+
+## STEP 5: Monitor Deployment
+
+In Railway:
+1. Click **Logs**
+2. Wait for: `[OK] Bot ready as TippyBot`
+3. Bot is now LIVE 24/7! ✅
+
+## STEP 6: Test Bot
+
+Add to Discord server and test:
+```
+$help
+$deposit
+$balance
+```
+
+---
+
+**That's it! Your bot will run forever on Railway with 24/7 uptime.**
+
+After initial setup, any push to GitHub = auto-deploy to Railway.

@@ -71,20 +71,6 @@ class LitecoinSigner:
             except:
                 fee_per_kb = 2000  # Fallback
             
-            # Get current network fee from BlockCypher
-            try:
-                fee_resp = requests.get(
-                    'https://api.blockcypher.com/v1/ltc/main',
-                    timeout=5
-                )
-                if fee_resp.status_code == 200:
-                    fee_data = fee_resp.json()
-                    fee_per_kb = fee_data.get('medium_fee_per_kb', 2000)  # satoshis/KB
-                else:
-                    fee_per_kb = 2000
-            except:
-                fee_per_kb = 2000  # Fallback
-            
             # Get UTXOs from BlockCypher
             try:
                 utxo_resp = requests.get(
@@ -193,66 +179,72 @@ class LitecoinSigner:
                 
                 # Create and sign transaction via BlockCypher
                 logger.info(f"[TX] 📡 Creating transaction skeleton...")
-                new_tx_resp = requests.post(
-                    'https://api.blockcypher.com/v1/ltc/main/txs/new',
-                    json=tx_data,
-                    params={"token": config.BLOCKCYPHER_API_KEY or ""},
-                    timeout=10
-                )
-                
-                if new_tx_resp.status_code != 201:
-                    logger.error(f"[TX] ❌ Transaction creation failed: {new_tx_resp.status_code}")
-                    logger.error(f"[TX]    Response: {new_tx_resp.text}")
-                    return None
-                
-                tx_skeleton = new_tx_resp.json()
-                logger.info(f"[TX] ✅ Transaction skeleton created")
-                logger.debug(f"[TX]    Hash to sign: {len(tx_skeleton.get('tosign', []))} input(s)")
-                
-                # Sign each input
-                for idx in range(len(tx_skeleton.get('inputs', []))):
-                    # Get the hash to sign
-                    hash_to_sign = tx_skeleton['tosign'][idx]
-                    logger.debug(f"[TX] Signing input {idx+1}...")
+                try:
+                    new_tx_resp = requests.post(
+                        'https://api.blockcypher.com/v1/ltc/main/txs/new',
+                        json=tx_data,
+                        params={"token": config.BLOCKCYPHER_API_KEY or ""},
+                        timeout=10
+                    )
                     
-                    # Sign with private key
-                    from bitcoinlib.keys import HDKey
-                    key_obj = HDKey(private_key_wif, network='litecoin')
-                    signature = key_obj.sign(bytes.fromhex(hash_to_sign))
+                    if new_tx_resp.status_code != 201:
+                        logger.error(f"[TX] ❌ Transaction creation failed: {new_tx_resp.status_code}")
+                        logger.error(f"[TX]    Response: {new_tx_resp.text}")
+                        return None
                     
-                    tx_skeleton['signatures'].append(signature.hex())
-                
-                logger.info(f"[TX] ✅ Signed {len(tx_skeleton['signatures'])} input(s)")
-                
-                # Send signed transaction
-                logger.info(f"[TX] 📡 Broadcasting transaction...")
-                send_resp = requests.post(
-                    'https://api.blockcypher.com/v1/ltc/main/txs/send',
-                    json=tx_skeleton,
-                    params={"token": config.BLOCKCYPHER_API_KEY or ""},
-                    timeout=10
-                )
-                
-                if send_resp.status_code not in [200, 201]:
-                    logger.error(f"[TX] ❌ Transaction broadcast failed: {send_resp.status_code}")
-                    logger.error(f"[TX]    Response: {send_resp.text}")
-                    return None
-                
-                tx_hash = send_resp.json().get('tx', {}).get('hash')
-                
-                if tx_hash:
-                    logger.info(f"[TX] ✅ BROADCAST SUCCESSFUL: {tx_hash}")
-                    return tx_hash
-                else:
-                    logger.error("[TX] ❌ No TX hash in response")
+                    tx_skeleton = new_tx_resp.json()
+                    logger.info(f"[TX] ✅ Transaction skeleton created")
+                    logger.debug(f"[TX]    Hash to sign: {len(tx_skeleton.get('tosign', []))} input(s)")
+                    
+                    # Sign each input
+                    for idx in range(len(tx_skeleton.get('inputs', []))):
+                        # Get the hash to sign
+                        hash_to_sign = tx_skeleton['tosign'][idx]
+                        logger.debug(f"[TX] Signing input {idx+1}...")
+                        
+                        # Sign with private key
+                        from bitcoinlib.keys import HDKey
+                        key_obj = HDKey(private_key_wif, network='litecoin')
+                        signature = key_obj.sign(bytes.fromhex(hash_to_sign))
+                        
+                        tx_skeleton['signatures'].append(signature.hex())
+                    
+                    logger.info(f"[TX] ✅ Signed {len(tx_skeleton['signatures'])} input(s)")
+                    
+                    # Send signed transaction
+                    logger.info(f"[TX] 📡 Broadcasting transaction...")
+                    send_resp = requests.post(
+                        'https://api.blockcypher.com/v1/ltc/main/txs/send',
+                        json=tx_skeleton,
+                        params={"token": config.BLOCKCYPHER_API_KEY or ""},
+                        timeout=10
+                    )
+                    
+                    if send_resp.status_code not in [200, 201]:
+                        logger.error(f"[TX] ❌ Transaction broadcast failed: {send_resp.status_code}")
+                        logger.error(f"[TX]    Response: {send_resp.text}")
+                        return None
+                    
+                    tx_hash = send_resp.json().get('tx', {}).get('hash')
+                    
+                    if tx_hash:
+                        logger.info(f"[TX] ✅ BROADCAST SUCCESSFUL: {tx_hash}")
+                        return tx_hash
+                    else:
+                        logger.error("[TX] ❌ No TX hash in response")
+                        return None
+                    
+                except Exception as e:
+                    logger.error(f"[TX] ❌ Transaction creation error: {e}", exc_info=True)
                     return None
                 
             except Exception as e:
-            logger.error(f"[TX] ❌ Transaction creation error: {e}", exc_info=True)
-            return None
+                logger.error(f"[UTXO] ❌ Error processing UTXO: {e}", exc_info=True)
+                return None
                 
-    except Exception as e:
-        logger.error(f"[TX] ❌ Withdrawal error: {e}", exc_info=True)
+        except Exception as e:
+            logger.error(f"[TX] ❌ Withdrawal error: {e}", exc_info=True)
+            return None
     
     
     @staticmethod

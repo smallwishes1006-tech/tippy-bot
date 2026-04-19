@@ -9,6 +9,7 @@ from bitcoinlib.keys import Key
 from bitcoinlib.wallets import wallet_create_or_open, wallet_delete_if_exists
 from bitcoinlib.mnemonic import Mnemonic
 import config
+from address_validator import LitecoinValidator
 
 logger = logging.getLogger('litecoin_signer')
 
@@ -38,7 +39,37 @@ class LitecoinSigner:
             Transaction hash or None
         """
         try:
+            # Validate addresses FIRST before doing anything
+            if not LitecoinValidator.validate_address(from_address):
+                logger.error(f"Invalid source address: {from_address}")
+                return None
+            
+            if not LitecoinValidator.validate_address(to_address):
+                logger.error(f"Invalid destination address: {to_address}")
+                return None
+            
+            # Don't allow sending to same address
+            if from_address == to_address:
+                logger.error("Cannot send to same address")
+                return None
+            
             logger.info(f"Creating withdrawal: {amount} LTC to {to_address}")
+            logger.info(f"Source address type: {LitecoinValidator.get_address_type(from_address)}")
+            logger.info(f"Dest address type: {LitecoinValidator.get_address_type(to_address)}")
+            
+            # Get current network fee from BlockCypher
+            try:
+                fee_resp = requests.get(
+                    'https://api.blockcypher.com/v1/ltc/main',
+                    timeout=5
+                )
+                if fee_resp.status_code == 200:
+                    fee_data = fee_resp.json()
+                    fee_per_kb = fee_data.get('medium_fee_per_kb', 2000)  # satoshis/KB
+                else:
+                    fee_per_kb = 2000
+            except:
+                fee_per_kb = 2000  # Fallback
             
             # Get current network fee from BlockCypher
             try:

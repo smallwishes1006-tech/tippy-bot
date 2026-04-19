@@ -9,6 +9,7 @@ import logging
 import config
 from tippy_system import UserAccount, get_user_account, broadcast_withdrawal
 from exchange_rates import get_ltc_usd_rate, ltc_to_usd, usd_to_ltc, format_amount
+from address_validator import LitecoinValidator
 
 logger = logging.getLogger('tippy_commands')
 
@@ -240,6 +241,30 @@ async def setup(bot):
                 error_embed.add_field(name="How to Withdraw", value="Send this command in a DM with Tippy", inline=False)
                 await ctx.send(embed=error_embed)
                 return
+            
+            # VALIDATE ADDRESS FIRST
+            if not LitecoinValidator.validate_address(address):
+                error_embed = discord.Embed(
+                    title="❌ Invalid Address",
+                    description=f"The address you provided is not a valid Litecoin address",
+                    color=discord.Color.red()
+                )
+                error_embed.add_field(
+                    name="Valid Formats",
+                    value="• **Legacy**: L... or M... (mainnet)\n• **Segwit**: ltc1... (mainnet)\n• **Testnet**: m/n/2/tltc1...",
+                    inline=False
+                )
+                error_embed.add_field(
+                    name="Your Address",
+                    value=f"`{address}`",
+                    inline=False
+                )
+                await ctx.send(embed=error_embed)
+                logger.warning(f"Invalid withdrawal address from {ctx.author.name}: {address}")
+                return
+            
+            address_type = LitecoinValidator.get_address_type(address)
+            logger.info(f"Withdraw to {address_type}: {address}")
             
             # Get exchange rate first
             rate = get_ltc_usd_rate()

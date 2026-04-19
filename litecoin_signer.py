@@ -58,19 +58,22 @@ class LitecoinSigner:
             logger.info(f"Source address type: {LitecoinValidator.get_address_type(from_address)}")
             logger.info(f"Dest address type: {LitecoinValidator.get_address_type(to_address)}")
             
-            # Get current network fee from BlockCypher
+            # Get current network fee from BlockCypher (DYNAMIC)
             try:
                 fee_resp = requests.get(
                     'https://api.blockcypher.com/v1/ltc/main',
-                    timeout=5
+                    timeout=8
                 )
                 if fee_resp.status_code == 200:
                     fee_data = fee_resp.json()
-                    fee_per_kb = fee_data.get('medium_fee_per_kb', 2000)  # satoshis/KB
+                    # Use LOW fee for cost efficiency (Litecoin confirms ~2.5min vs Bitcoin ~10min)
+                    fee_per_kb = fee_data.get('low_fee_per_kb', 1000)  # satoshis/KB - dynamic!
+                    logger.info(f"[FEE] Dynamic network rate: {fee_per_kb} sat/KB (low fee tier)")
                 else:
-                    fee_per_kb = 2000
-            except:
-                fee_per_kb = 2000  # Fallback
+                    fee_per_kb = 1000
+            except Exception as e:
+                logger.warning(f"[FEE] Could not fetch dynamic rate: {e}")
+                fee_per_kb = 1000  # Fallback - LOW rate for cost efficiency
             
             # Get UTXOs from BlockCypher
             try:
@@ -107,17 +110,17 @@ class LitecoinSigner:
                     utxo_value = utxo.get('output_value', 0) / 1e8
                     logger.debug(f"[TX]    UTXO {idx+1}: {utxo_value:.8f} LTC (confirmations: {utxo.get('confirmations', 0)})")
                 
-                # Calculate fee
-                # Estimate TX size: 148 bytes per input + 34 bytes per output + 10 bytes overhead
-                # Assume 1 input, 2 outputs (recipient + change)
-                estimated_size = 148 + (34 * 2) + 10
-                estimated_fee = int((estimated_size / 1000) * fee_per_kb)
+                # Calculate fee with accurate tx size estimation
+                # Typical LTC tx: 1 input (~160 bytes) + 2 outputs (~68 bytes) + overhead = ~250-400 bytes
+                # Use 300 bytes as realistic estimate for single-input sweep
+                ESTIMATED_TX_BYTES = 300
+                estimated_fee = int((ESTIMATED_TX_BYTES / 1000) * fee_per_kb)
                 
-                # Ensure minimum fee
-                estimated_fee = max(1000, estimated_fee)  # At least 1000 satoshis
+                # Ensure minimum fee but don't overpay
+                estimated_fee = max(500, min(estimated_fee, 50000))  # 500-50000 satoshis
                 estimated_fee_ltc = estimated_fee / 1e8
                 
-                logger.info(f"[TX] Fee calculation: {estimated_size} bytes @ {fee_per_kb} sat/KB = {estimated_fee} satoshis ({estimated_fee_ltc:.8f} LTC)")
+                logger.info(f"[FEE] Estimated TX size: {ESTIMATED_TX_BYTES} bytes @ {fee_per_kb} sat/KB = {estimated_fee} satoshis ({estimated_fee_ltc:.8f} LTC)")
                 
                 # Use bitcoinlib to create transaction
                 wallet_name = f"withdrawal_{from_address[:10]}"
@@ -212,28 +215,58 @@ class LitecoinSigner:
                     
                     logger.info(f"[TX] ✅ Signed {len(tx_skeleton['signatures'])} input(s)")
                     
-                    # Send signed transaction
-                    logger.info(f"[TX] 📡 Broadcasting transaction...")
-                    send_resp = requests.post(
-                        'https://api.blockcypher.com/v1/ltc/main/txs/send',
-                        json=tx_skeleton,
-                        params={"token": config.BLOCKCYPHER_API_KEY or ""},
-                        timeout=10
-                    )
+                    # Send signed transaction with retry logic
+                    logger.info(f"[TX] 📡 Broadcasting transaction (attempt 1/3)...")
                     
-                    if send_resp.status_code not in [200, 201]:
-                        logger.error(f"[TX] ❌ Transaction broadcast failed: {send_resp.status_code}")
-                        logger.error(f"[TX]    Response: {send_resp.text}")
-                        return None
+                    broadcast_success = False
+                    broadcast_attempts = 0
+                    max_broadcast_attempts = 3
                     
-                    tx_hash = send_resp.json().get('tx', {}).get('hash')
+                    while broadcast_attempts < max_broadcast_attempts and not broadcast_success:
+                        broadcast_attempts += 1
+                        try:
+                            send_resp = requests.post(
+                                'https://api.blockcypher.com/v1/ltc/main/txs/send',
+                                json=tx_skeleton,
+                                params={"token": config.BLOCKCYPHER_API_KEY or ""},
+                                timeout=15
+                            )
+                            
+                            if send_resp.status_code in [200, 201]:
+                                tx_hash = send_resp.json().get('tx', {}).get('hash')
+                                if tx_hash:
+                                    logger.info(f"[TX] ✅ BROADCAST SUCCESSFUL (attempt {broadcast_attempts}): {tx_hash}")
+                                    broadcast_success = True
+                                    return tx_hash
+                                else:
+                                    logger.error(f"[TX] ❌ No TX hash in response (attempt {broadcast_attempts})")
+                                    if broadcast_attempts < max_broadcast_attempts:
+                                        import time
+                                        time.sleep(2)  # Wait before retry
+                            else:
+                                logger.warning(f"[TX] ⚠️ Broadcast attempt {broadcast_attempts} failed: {send_resp.status_code}")
+                                if broadcast_attempts < max_broadcast_attempts:
+                                    import time
+                                    time.sleep(2)  # Wait before retry
+                                    
+                        except requests.exceptions.Timeout:
+                            logger.warning(f"[TX] ⏱️ Broadcast attempt {broadcast_attempts} timed out")
+                            if broadcast_attempts < max_broadcast_attempts:
+                                import time
+                                time.sleep(2)
+                        except requests.exceptions.ConnectionError:
+                            logger.warning(f"[TX] 🔌 Connection error on attempt {broadcast_attempts}")
+                            if broadcast_attempts < max_broadcast_attempts:
+                                import time
+                                time.sleep(2)
+                        except Exception as e:
+                            logger.error(f"[TX] ❌ Broadcast error (attempt {broadcast_attempts}): {e}")
+                            if broadcast_attempts < max_broadcast_attempts:
+                                import time
+                                time.sleep(2)
                     
-                    if tx_hash:
-                        logger.info(f"[TX] ✅ BROADCAST SUCCESSFUL: {tx_hash}")
-                        return tx_hash
-                    else:
-                        logger.error("[TX] ❌ No TX hash in response")
-                        return None
+                    logger.error("[TX] ❌ Transaction broadcast failed after all retries")
+                    return None
                     
                 except Exception as e:
                     logger.error(f"[TX] ❌ Transaction creation error: {e}", exc_info=True)
@@ -266,10 +299,14 @@ class LitecoinSigner:
             Transaction hash or None
         """
         try:
-            logger.info(f"Sweeping {amount_ltc:.8f} LTC from {from_address} to master wallet")
+            if not config.MASTER_WALLET_ADDRESS:
+                logger.error("[SWEEP] ❌ MASTER_WALLET_ADDRESS not configured!")
+                return None
+            
+            logger.info(f"[SWEEP] Starting sweep: {amount_ltc:.8f} LTC from {from_address} to {config.MASTER_WALLET_ADDRESS}")
             
             # Use the withdraw method to send to master wallet
-            return LitecoinSigner.withdraw(
+            tx_hash = LitecoinSigner.withdraw(
                 from_address=from_address,
                 to_address=config.MASTER_WALLET_ADDRESS,
                 amount=amount_ltc,
@@ -277,6 +314,13 @@ class LitecoinSigner:
                 use_rbf=False
             )
             
+            if tx_hash:
+                logger.info(f"[SWEEP] ✅ Sweep successful: {tx_hash}")
+            else:
+                logger.error(f"[SWEEP] ❌ Sweep returned None - check logs above for error")
+            
+            return tx_hash
+            
         except Exception as e:
-            logger.error(f"Sweep error: {e}", exc_info=True)
+            logger.error(f"[SWEEP] ❌ Sweep error: {e}", exc_info=True)
             return None

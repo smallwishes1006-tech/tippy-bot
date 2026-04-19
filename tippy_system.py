@@ -6,6 +6,7 @@ import json
 import os
 import logging
 import discord
+import time
 from dataclasses import dataclass, asdict
 from bitcoinlib.keys import Key
 from litecoin_signer import LitecoinSigner
@@ -14,6 +15,52 @@ import config
 logger = logging.getLogger('tippy_system')
 
 DATA_FILE = 'tippy_data/users.json'
+
+
+class RateLimiter:
+    """Simple rate limiter for API calls (prevents BlockCypher free tier exhaustion)"""
+    
+    def __init__(self, max_calls: int, time_window_seconds: int):
+        """
+        Initialize rate limiter
+        
+        Args:
+            max_calls: Max calls allowed in time window
+            time_window_seconds: Time window in seconds
+        """
+        self.max_calls = max_calls
+        self.time_window = time_window_seconds
+        self.calls = []
+    
+    def is_allowed(self) -> bool:
+        """Check if a call is allowed"""
+        now = time.time()
+        
+        # Remove old calls outside the time window
+        self.calls = [call_time for call_time in self.calls if now - call_time < self.time_window]
+        
+        # Check if we have room for another call
+        if len(self.calls) < self.max_calls:
+            self.calls.append(now)
+            return True
+        
+        return False
+    
+    def wait_if_needed(self):
+        """Wait if needed before making another call"""
+        if not self.is_allowed():
+            now = time.time()
+            oldest_call = self.calls[0]
+            wait_time = (oldest_call + self.time_window) - now
+            if wait_time > 0:
+                logger.warning(f"[RATE_LIMIT] Waiting {wait_time:.1f}s to respect rate limits")
+                time.sleep(wait_time)
+                self.calls = [call_time for call_time in self.calls if time.time() - call_time < self.time_window]
+
+
+# BlockCypher rate limiter (200 req/hour = ~3.3 req/min)
+# Conservative: 2 req/min (120 req/hour) with burst allowance
+BLOCKCYPHER_RATE_LIMITER = RateLimiter(max_calls=2, time_window_seconds=60)
 
 
 @dataclass
@@ -56,10 +103,38 @@ def load_all_users() -> dict:
 
 
 def save_all_users(users: dict):
-    """Save all users to database"""
+    """Save all users to database with atomic write and backup"""
+    import shutil
+    import tempfile
+    
     os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)
-    with open(DATA_FILE, 'w') as f:
-        json.dump(users, f, indent=2)
+    
+    # Create backup if file exists
+    if os.path.exists(DATA_FILE):
+        backup_file = f"{DATA_FILE}.backup"
+        try:
+            shutil.copy2(DATA_FILE, backup_file)
+            logger.debug(f"Backup created: {backup_file}")
+        except Exception as e:
+            logger.error(f"Failed to create backup: {e}")
+    
+    # Write to temporary file first (atomic operation)
+    temp_fd, temp_path = tempfile.mkstemp(dir=os.path.dirname(DATA_FILE), suffix='.tmp')
+    try:
+        with os.fdopen(temp_fd, 'w') as f:
+            json.dump(users, f, indent=2)
+        
+        # Atomic rename (fails if can't write, doesn't corrupt existing file)
+        os.replace(temp_path, DATA_FILE)
+        logger.debug(f"Database saved atomically: {DATA_FILE}")
+    except Exception as e:
+        logger.error(f"Failed to save database: {e}", exc_info=True)
+        # Clean up temp file if rename failed
+        try:
+            os.unlink(temp_path)
+        except:
+            pass
+        raise
 
 
 def log_withdrawal(user_id: int, tx_hash: str, amount_ltc: float, to_address: str, status: str = "pending"):
@@ -211,7 +286,7 @@ async def check_deposits(bot=None):
                 import requests
                 # Get balance from BlockCypher
                 url = f"https://api.blockcypher.com/v1/ltc/main/addrs/{deposit_addr}/full"
-                resp = requests.get(url, params={"token": config.BLOCKCYPHER_API_KEY or ""}, timeout=10)
+                resp = requests.get(url, params={"token": config.BLOCKCYPHER_API_KEY or ""}, timeout=15)
                 
                 if resp.status_code != 200:
                     logger.warning(f"[DEPOSIT CHECK] BlockCypher error for {deposit_addr}: {resp.status_code}")
@@ -272,26 +347,10 @@ async def check_deposits(bot=None):
                         sweep_count += 1
                         logger.info(f"[SWEEP] ✅ SUCCESS: {balance_ltc:.8f} LTC swept. TX: {tx_hash}")
                         logger.info(f"[SWEEP]    New balance in database: {user.balance:.8f} LTC")
-                        
-                        # Send DM notification if bot provided
-                        if bot:
-                            try:
-                                user_discord = await bot.fetch_user(user_id_int)
-                                embed = discord.Embed(
-                                    title="💰 Deposit Received & Swept!",
-                                    description=f"Deposit received: **{new_deposit:.8f} LTC**",
-                                    color=discord.Color.green()
-                                )
-                                embed.add_field(name="Your Balance", value=f"**{balance_ltc:.8f} LTC**", inline=False)
-                                embed.add_field(name="TX Hash", value=f"`{tx_hash[:30]}...`", inline=False)
-                                embed.add_field(name="Status", value="Sweeping to master wallet", inline=False)
-                                embed.set_footer(text="Confirmations will update shortly")
-                                await user_discord.send(embed=embed)
-                            except Exception as e:
-                                logger.debug(f"Could not notify user {user_id}: {e}")
                     else:
-                        logger.error(f"[SWEEP] ❌ FAILED: Could not sweep {balance_ltc:.8f} LTC from {deposit_addr}")
-                        logger.error(f"[SWEEP]    Check logs above for error details")
+                        logger.error(f"[SWEEP] ❌ FAILED: sweep_to_master returned None for {deposit_addr}")
+                        logger.error(f"[SWEEP]    Amount: {balance_ltc:.8f} LTC")
+                        logger.error(f"[SWEEP]    Check litecoin_signer logs above for error details")
                     
             except Exception as e:
                 logger.error(f"[DEPOSIT CHECK] ❌ Error checking {deposit_addr}: {e}", exc_info=True)
@@ -303,3 +362,53 @@ async def check_deposits(bot=None):
         
     except Exception as e:
         logger.error(f"[DEPOSIT CHECK] ❌ Fatal error: {e}", exc_info=True)
+
+
+def broadcast_withdrawal(from_address: str, to_address: str, amount_ltc: float) -> str:
+    """
+    Broadcast a withdrawal transaction to the blockchain
+    CRITICAL: Validates broadcast success before returning hash
+    
+    Args:
+        from_address: Master wallet address (where funds are swept)
+        to_address: User's external address
+        amount_ltc: Amount in LTC to send
+    
+    Returns:
+        Transaction hash if successful, None otherwise
+    """
+    try:
+        logger.info(f"[BROADCAST] 📤 Withdrawal: {amount_ltc:.8f} LTC to {to_address[:20]}...")
+        
+        # Get the master wallet's private key
+        if not config.MASTER_WALLET_PRIVATE_KEY:
+            logger.error("[BROADCAST] ❌ MASTER_WALLET_PRIVATE_KEY not configured")
+            return None
+        
+        # Use LitecoinSigner to create and broadcast the transaction
+        from litecoin_signer import LitecoinSigner
+        
+        # Make the withdrawal
+        tx_hash = LitecoinSigner.withdraw(
+            from_address=from_address,
+            to_address=to_address,
+            amount=amount_ltc,
+            private_key_wif=config.MASTER_WALLET_PRIVATE_KEY,
+            use_rbf=True
+        )
+        
+        if not tx_hash:
+            logger.error("[BROADCAST] ❌ Transaction creation failed - LitecoinSigner returned None")
+            return None
+        
+        # Validate the TX hash format (should be 64 hex characters)
+        if not isinstance(tx_hash, str) or len(tx_hash) != 64:
+            logger.error(f"[BROADCAST] ❌ Invalid TX hash format: {tx_hash}")
+            return None
+        
+        logger.info(f"[BROADCAST] ✅ Transaction broadcast successful: {tx_hash[:20]}...")
+        return tx_hash
+        
+    except Exception as e:
+        logger.error(f"[BROADCAST] ❌ Broadcast error: {e}", exc_info=True)
+        return None

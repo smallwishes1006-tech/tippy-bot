@@ -74,7 +74,7 @@ async def setup(bot):
                 resp = requests.get(
                     f"https://api.blockcypher.com/v1/ltc/main/addrs/{user.deposit_address}/full",
                     params={"token": config.BLOCKCYPHER_API_KEY or ""},
-                    timeout=5
+                    timeout=10
                 )
                 if resp.status_code == 200:
                     addr_data = resp.json()
@@ -83,6 +83,10 @@ async def setup(bot):
                 else:
                     confirmed = user.balance
                     unconfirmed = 0
+            except requests.exceptions.Timeout:
+                logger.warning("BlockCypher API timeout - using cached balance")
+                confirmed = user.balance
+                unconfirmed = 0
             except:
                 confirmed = user.balance
                 unconfirmed = 0
@@ -273,19 +277,27 @@ async def setup(bot):
             SERVICE_FEE_USD = 0.01
             SERVICE_FEE_LTC = usd_to_ltc(SERVICE_FEE_USD)
             
-            # Get real-time network fee from BlockCypher
+            # Get real-time network fee from BlockCypher (DYNAMIC)
             try:
                 import requests
-                fee_data = requests.get('https://api.blockcypher.com/v1/ltc/main', timeout=5).json()
-                # BlockCypher gives low/medium/high fees in satoshis per KB
-                # Use medium fee
-                fee_per_kb = fee_data.get('medium_fee_per_kb', 2000)  # fallback to 2000 satoshis/KB
-                # Estimate transaction size: ~250 bytes = 0.25 KB, so multiply by 0.25
-                CHAIN_FEE_SATOSHIS = max(1000, int(fee_per_kb * 0.25))  # at least 1000 satoshis
+                from tippy_system import BLOCKCYPHER_RATE_LIMITER
+                
+                # Rate limit to prevent exhausting free tier
+                BLOCKCYPHER_RATE_LIMITER.wait_if_needed()
+                
+                fee_data = requests.get('https://api.blockcypher.com/v1/ltc/main', timeout=config.BLOCKCYPHER_TIMEOUT_BALANCE).json()
+                # Use LOW fee tier (Litecoin confirms faster than Bitcoin)
+                fee_per_kb = fee_data.get('low_fee_per_kb', 1000)  # satoshis/KB - dynamic!
+                logger.info(f"[FEE] Dynamic rate: {fee_per_kb} sat/KB (low tier)")
+                
+                # More accurate TX size: typical 1-input sweep = 300 bytes
+                CHAIN_FEE_SATOSHIS = max(500, int((config.ESTIMATED_TX_SIZE_BYTES / 1000) * fee_per_kb))
                 CHAIN_FEE_LTC = CHAIN_FEE_SATOSHIS / 1e8
-            except:
+                logger.debug(f"[FEE] {config.ESTIMATED_TX_SIZE_BYTES} bytes @ {fee_per_kb} sat/KB = {CHAIN_FEE_SATOSHIS} sat ({CHAIN_FEE_LTC:.8f} LTC)")
+            except Exception as e:
                 # Fallback if API fails
-                CHAIN_FEE_LTC = 0.00002  # 2000 satoshis
+                logger.warning(f"[FEE] Could not fetch dynamic fee: {e}")
+                CHAIN_FEE_LTC = 0.00015  # ~1500 satoshis as conservative fallback
             
             user = get_user_account(ctx.author.id)
             

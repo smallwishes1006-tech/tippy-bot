@@ -1,0 +1,62 @@
+TIPPY BOT DEPLOYMENT CHECKLIST
+===============================
+
+GitHub Status: ✅ COMPLETE
+- Code pushed to: https://github.com/smallwishes1006-tech/tippy-bot
+- All 30 files committed and ready
+- Docker configuration ready
+- Render.com auto-deploy configured
+
+Your Discord Bot Token: [stored in .env locally]
+Your Master Wallet: LgtpifMGDFirYSp39esx3zb4v47KgqubBk
+Your Master Wallet Private Key: [stored in .env locally]
+BlockCypher API Key: [stored in .env locally]
+Bot Owner ID: 772300666458603520
+
+DEPLOYMENT STEPS:
+
+☐ Step 1: Go to https://render.com
+         Sign up with GitHub
+         (2 minutes)
+
+☐ Step 2: Click "New +" → "Worker"
+         Select: smallwishes1006-tech/tippy-bot
+         Name: tippy-bot
+         Runtime: Docker
+         Plan: Free
+         Click "Create Web Service"
+         (1 minute)
+
+☐ Step 3: Go to "Environment" tab
+         Add 5 variables (copy-paste exact values):
+         - DISCORD_TOKEN
+         - MASTER_WALLET_ADDRESS
+         - MASTER_WALLET_PRIVATE_KEY
+         - BLOCKCYPHER_API_KEY
+         - BOT_OWNER_ID
+         (1 minute)
+
+☐ Step 4: Go to "Logs" tab
+         Wait for: [OK] Bot ready as TippyBot
+         (1 minute)
+
+☐ Step 5: Test in Discord
+         Type: $help
+         Bot should respond
+         (30 seconds)
+
+☐ Step 6: Stop Replit bot
+         https://replit.com/@smallwishes1006/tippy-bot
+         Click "Stop"
+         (30 seconds)
+
+TOTAL TIME: ~7 minutes
+
+RESULT: Your Tippy Bot runs 24/7 on Render.com COMPLETELY FREE
+- No Replit costs
+- No trial expiration
+- No downtime
+- Auto-deploys from GitHub
+
+All code is ready on GitHub!
+Just follow the 6 steps above.

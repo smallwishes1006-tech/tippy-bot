@@ -140,7 +140,7 @@ def broadcast_withdrawal(from_address: str, to_address: str, amount_ltc: float) 
     Note: Service fee is just a database deduction (not sent on-chain)
     """
     try:
-        logger.info(f"Broadcasting: {amount_ltc} LTC from {from_address} to {to_address}")
+        logger.info(f"[BROADCAST] 📤 Withdrawal request: {amount_ltc:.8f} LTC from {from_address[:20]}... to {to_address[:20]}...")
         
         # Determine the private key
         found_key = None
@@ -148,20 +148,23 @@ def broadcast_withdrawal(from_address: str, to_address: str, amount_ltc: float) 
         # Check if this is the master wallet
         if from_address == config.MASTER_WALLET_ADDRESS:
             found_key = config.MASTER_WALLET_PRIVATE_KEY
-            logger.info(f"Using master wallet private key")
+            logger.debug(f"[BROADCAST] Using master wallet key")
         else:
             # Try to find the key in our database
+            logger.debug(f"[BROADCAST] Looking up private key in database...")
             all_users = load_all_users()
             for user_data in all_users.values():
                 if user_data.get('deposit_address') == from_address:
                     found_key = user_data.get('deposit_key')
+                    logger.debug(f"[BROADCAST] Found key in database")
                     break
         
         if not found_key:
-            logger.error(f"Private key not found for {from_address}")
+            logger.error(f"[BROADCAST] ❌ Private key not found for {from_address}")
             return None
         
         # Use LitecoinSigner to create and broadcast
+        logger.info(f"[BROADCAST] ✅ Starting transaction creation...")
         tx_hash = LitecoinSigner.withdraw(
             from_address=from_address,
             to_address=to_address,
@@ -171,14 +174,14 @@ def broadcast_withdrawal(from_address: str, to_address: str, amount_ltc: float) 
         )
         
         if tx_hash:
-            logger.info(f"✅ Broadcast successful: {tx_hash}")
+            logger.info(f"[BROADCAST] ✅ BROADCAST SUCCESSFUL: {tx_hash}")
         else:
-            logger.error(f"❌ Broadcast failed")
+            logger.error(f"[BROADCAST] ❌ BROADCAST FAILED: Could not create/broadcast transaction")
         
         return tx_hash
         
     except Exception as e:
-        logger.error(f"Withdrawal error: {e}", exc_info=True)
+        logger.error(f"[BROADCAST] ❌ Withdrawal error: {e}", exc_info=True)
         return None
 
 
@@ -190,6 +193,7 @@ async def check_deposits(bot=None):
     """
     try:
         all_users = load_all_users()
+        sweep_count = 0
         
         for user_id, user_data in all_users.items():
             deposit_addr = user_data.get('deposit_address')
@@ -201,7 +205,7 @@ async def check_deposits(bot=None):
                 continue
             
             # Check balance at this address
-            logger.debug(f"Checking deposits for {deposit_addr}")
+            logger.debug(f"[DEPOSIT CHECK] Checking {deposit_addr} (current balance: {current_balance:.8f} LTC)")
             
             try:
                 import requests
@@ -210,7 +214,7 @@ async def check_deposits(bot=None):
                 resp = requests.get(url, params={"token": config.BLOCKCYPHER_API_KEY or ""}, timeout=10)
                 
                 if resp.status_code != 200:
-                    logger.warning(f"BlockCypher error for {deposit_addr}: {resp.status_code}")
+                    logger.warning(f"[DEPOSIT CHECK] BlockCypher error for {deposit_addr}: {resp.status_code}")
                     continue
                 
                 data = resp.json()
@@ -218,6 +222,7 @@ async def check_deposits(bot=None):
                 balance_satoshis = data.get('final_balance', 0)
                 
                 if balance_satoshis <= 0:
+                    logger.debug(f"[DEPOSIT CHECK] No confirmed balance at {deposit_addr}")
                     continue  # No confirmed deposits
                 
                 balance_ltc = balance_satoshis / 1e8
@@ -225,10 +230,11 @@ async def check_deposits(bot=None):
                 # Only sweep if there's NEW confirmed balance (more than we already counted)
                 if balance_ltc > current_balance:
                     new_deposit = balance_ltc - current_balance
-                    logger.info(f"[DEPOSIT] New confirmed deposit: {new_deposit:.8f} LTC at {deposit_addr}")
+                    logger.info(f"[DEPOSIT] ✅ NEW DEPOSIT DETECTED: {new_deposit:.8f} LTC at {deposit_addr}")
+                    logger.info(f"[DEPOSIT]    Blockchain Balance: {balance_ltc:.8f} LTC | Stored Balance: {current_balance:.8f} LTC")
                     
                     # Sweep all confirmed funds to master wallet
-                    logger.info(f"[SWEEP] Sweeping {balance_ltc:.8f} LTC to master wallet...")
+                    logger.info(f"[SWEEP] 🔄 Starting sweep of {balance_ltc:.8f} LTC to {config.MASTER_WALLET_ADDRESS}...")
                     
                     from litecoin_signer import LitecoinSigner
                     tx_hash = LitecoinSigner.sweep_to_master(
@@ -242,29 +248,58 @@ async def check_deposits(bot=None):
                         user = UserAccount(**user_data)
                         user.balance = balance_ltc
                         user.total_received += new_deposit
+                        
+                        # Track in pending transactions
+                        if user.pending_txs is None:
+                            user.pending_txs = []
+                        user.pending_txs.append(tx_hash)
+                        
+                        # Add to withdrawal history for tracking
+                        if user.withdrawal_history is None:
+                            user.withdrawal_history = []
+                        
+                        import time
+                        user.withdrawal_history.append({
+                            "tx_hash": tx_hash,
+                            "amount": balance_ltc,
+                            "address": config.MASTER_WALLET_ADDRESS,
+                            "time": time.time(),
+                            "status": "pending",
+                            "type": "sweep"
+                        })
+                        
                         user.save()
-                        logger.info(f"[OK] Swept {balance_ltc:.8f} LTC for user {user_id}. New balance: {user.balance:.8f}")
+                        sweep_count += 1
+                        logger.info(f"[SWEEP] ✅ SUCCESS: {balance_ltc:.8f} LTC swept. TX: {tx_hash}")
+                        logger.info(f"[SWEEP]    New balance in database: {user.balance:.8f} LTC")
                         
                         # Send DM notification if bot provided
                         if bot:
                             try:
                                 user_discord = await bot.fetch_user(user_id_int)
                                 embed = discord.Embed(
-                                    title="Deposit Received!",
-                                    description=f"New deposit: **{new_deposit:.8f} LTC** (~${new_deposit * 50:.2f})",
+                                    title="💰 Deposit Received & Swept!",
+                                    description=f"Deposit received: **{new_deposit:.8f} LTC**",
                                     color=discord.Color.green()
                                 )
                                 embed.add_field(name="Your Balance", value=f"**{balance_ltc:.8f} LTC**", inline=False)
-                                embed.add_field(name="TX", value=f"`{tx_hash[:30]}...`", inline=False)
-                                embed.set_footer(text="Sweep to master wallet confirmed")
+                                embed.add_field(name="TX Hash", value=f"`{tx_hash[:30]}...`", inline=False)
+                                embed.add_field(name="Status", value="Sweeping to master wallet", inline=False)
+                                embed.set_footer(text="Confirmations will update shortly")
                                 await user_discord.send(embed=embed)
                             except Exception as e:
                                 logger.debug(f"Could not notify user {user_id}: {e}")
                     else:
-                        logger.warning(f"[FAIL] Sweep failed for {deposit_addr}")
+                        logger.error(f"[SWEEP] ❌ FAILED: Could not sweep {balance_ltc:.8f} LTC from {deposit_addr}")
+                        logger.error(f"[SWEEP]    Check logs above for error details")
                     
             except Exception as e:
-                logger.warning(f"Deposit check error for {deposit_addr}: {e}")
-            
+                logger.error(f"[DEPOSIT CHECK] ❌ Error checking {deposit_addr}: {e}", exc_info=True)
+        
+        if sweep_count > 0:
+            logger.info(f"[DEPOSIT] ✅ Deposit check complete - {sweep_count} sweep(s) processed")
+        else:
+            logger.debug(f"[DEPOSIT] Deposit check complete - no new deposits")
+        
     except Exception as e:
-        logger.error(f"Deposit check error: {e}")
+        logger.error(f"[DEPOSIT CHECK] ❌ Fatal error: {e}", exc_info=True)

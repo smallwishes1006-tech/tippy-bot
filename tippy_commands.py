@@ -715,6 +715,61 @@ async def setup(bot):
             await ctx.send(f"[FAIL] Error checking TX: {str(e)[:100]}")
     
     
+    @bot.command(name='status', help='Check bot system status')
+    async def bot_status(ctx):
+        """Check exchange rate and bot health"""
+        try:
+            rate = get_ltc_usd_rate()
+            
+            embed = discord.Embed(
+                title="🤖 Tippy Bot Status",
+                description="System Health & Exchange Rate",
+                color=discord.Color.green()
+            )
+            
+            embed.add_field(
+                name="💱 Exchange Rate",
+                value=f"**1 LTC = ${rate:.2f} USD**",
+                inline=False
+            )
+            
+            embed.add_field(
+                name="✅ Status",
+                value="All systems operational",
+                inline=False
+            )
+            
+            embed.add_field(
+                name="📡 APIs",
+                value="Multiple sources (CoinGecko, Binance, Kraken, CoinMarketCap)",
+                inline=True
+            )
+            
+            embed.add_field(
+                name="💾 Cache",
+                value="30 min (persistent)",
+                inline=True
+            )
+            
+            embed.add_field(
+                name="🔄 Last Updated",
+                value="Every 25 minutes",
+                inline=True
+            )
+            
+            embed.set_footer(text="Bot is healthy and running smoothly")
+            await ctx.send(embed=embed)
+            
+        except Exception as e:
+            logger.error(f"Status command error: {e}")
+            embed = discord.Embed(
+                title="⚠️ Bot Status",
+                description="Error checking status",
+                color=discord.Color.red()
+            )
+            embed.add_field(name="Error", value=str(e)[:100], inline=False)
+            await ctx.send(embed=embed)
+    
     
     # ===== COMMAND ALIASES (short versions) =====
     

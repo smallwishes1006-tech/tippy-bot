@@ -49,6 +49,7 @@ async def on_ready():
     # Start background tasks
     monitor_deposits.start()
     monitor_pending_txs.start()
+    refresh_exchange_rate.start()
 
 
 @bot.event
@@ -67,6 +68,17 @@ async def monitor_deposits():
         logger.info("[OK] Deposit check complete")
     except Exception as e:
         logger.error(f"Deposit monitor error: {e}")
+
+
+@tasks.loop(minutes=25)
+async def refresh_exchange_rate():
+    """Refresh exchange rate every 25 minutes"""
+    try:
+        from exchange_rates import get_ltc_usd_rate
+        rate = get_ltc_usd_rate()
+        logger.info(f"[RATE] ✅ Exchange rate refreshed: ${rate:.2f}")
+    except Exception as e:
+        logger.error(f"Exchange rate refresh error: {e}")
 
 
 @tasks.loop(minutes=2)
